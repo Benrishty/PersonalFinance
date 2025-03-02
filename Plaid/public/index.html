@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Connect Your Bank Account</title>
+  <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+  <style>
+    .plaid-link-button {
+      background-color: #0a85ea;
+      color: white;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+      margin: 5px;
+    }
+    
+    .plaid-link-button:hover {
+      background-color: #0967d2;
+    }
+    
+    .plaid-link-button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    
+    .container {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    
+    .button-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    
+    .status {
+      margin-top: 20px;
+      padding: 10px;
+      border-radius: 4px;
+      display: none;
+      max-width: 500px;
+      text-align: center;
+    }
+    
+    .success {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="button-container">
+      <button id="plaid-link-button" class="plaid-link-button" disabled>
+        Connect Your Bank Account
+      </button>
+      <button id="sandbox-button" class="plaid-link-button" style="background-color: #28a745;">
+        Use Sandbox Test Bank
+      </button>
+    </div>
+    <div id="status" class="status"></div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      const button = document.getElementById('plaid-link-button');
+      const sandboxButton = document.getElementById('sandbox-button');
+      const statusElement = document.getElementById('status');
+      
+      function showStatus(message, isError = false) {
+        statusElement.textContent = message;
+        statusElement.style.display = 'block';
+        statusElement.className = isError ? 'status error' : 'status success';
+        console.log(isError ? `ERROR: ${message}` : message);
+      }
+      
+      try {
+        // Fetch link token from your server
+        showStatus('Fetching link token...');
+        const response = await fetch('/api/create-link-token');
+        const data = await response.json();
+        
+        if (data.error) {
+          showStatus(`Error: ${data.error}`, true);
+          return;
+        }
+        
+        const linkToken = data.link_token;
+        showStatus(`Link token received: ${linkToken.substring(0, 10)}...`);
+        
+        // Initialize Plaid Link
+        const handler = Plaid.create({
+          token: linkToken,
+          onSuccess: async (public_token, metadata) => {
+            try {
+              showStatus(`Link successful! Exchanging public token: ${public_token.substring(0, 10)}...`);
+              console.log('Link success metadata:', metadata);
+              
+              // Send public token to your server
+              const exchangeResponse = await fetch('/api/exchange-public-token', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ public_token })
+              });
+              
+              const exchangeData = await exchangeResponse.json();
+              
+              if (exchangeData.error) {
+                showStatus(`Error exchanging token: ${exchangeData.error}`, true);
+                return;
+              }
+              
+              showStatus('Successfully linked account!');
+              console.log('Exchange response:', exchangeData);
+            } catch (error) {
+              showStatus(`Error in onSuccess callback: ${error.message}`, true);
+              console.error('Error in onSuccess:', error);
+            }
+          },
+          onExit: (err, metadata) => {
+            if (err) {
+              showStatus(`Link exit with error: ${err.error_message || err.display_message || JSON.stringify(err)}`, true);
+              console.error('Link exit error:', err, metadata);
+            } else {
+              showStatus('Link exited without error');
+              console.log('Link exit metadata:', metadata);
+            }
+          },
+          onEvent: (eventName, metadata) => {
+            console.log('Link event:', eventName, metadata);
+          },
+          onLoad: () => {
+            showStatus('Plaid Link loaded');
+          }
+        });
+        
+        // Enable button and add click handler
+        button.disabled = false;
+        button.addEventListener('click', () => {
+          showStatus('Opening Plaid Link...');
+          handler.open();
+        });
+        
+        // Add sandbox button handler
+        sandboxButton.addEventListener('click', async () => {
+          try {
+            showStatus('Creating sandbox test connection...');
+            const response = await fetch('/api/create-sandbox-public-token');
+            const data = await response.json();
+            
+            if (data.error) {
+              showStatus(`Error: ${data.error}`, true);
+              return;
+            }
+            
+            showStatus(`Success! ${data.message}`);
+          } catch (error) {
+            showStatus(`Error: ${error.message}`, true);
+          }
+        });
+      } catch (error) {
+        showStatus(`Error initializing Plaid Link: ${error.message}`, true);
+        console.error('Error initializing Plaid Link:', error);
+      }
+    });
+  </script>
+</body>
+</html>
