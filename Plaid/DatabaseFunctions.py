@@ -62,6 +62,32 @@ def read_table_data(connection, table_name):
     except pyodbc.Error as err:
         print(f"Error executing SQL query on table {table_name}: {err}")
         return None
+    
+
+def run_query(engine, query):
+    """
+    Execute a SQL query. If it's a SELECT query, return the result as a pandas DataFrame.
+    For other queries like UPDATE, INSERT, DELETE, return the number of affected rows.
+
+    Parameters:
+    engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine connected to the database.
+    query (str): The SQL query to execute.
+
+    Returns:
+    pd.DataFrame or int: The result of the query as a DataFrame for SELECT queries,
+                         or the number of affected rows for other queries.
+    """
+    try:
+        with engine.connect() as connection:
+            if query.strip().upper().startswith("SELECT"):
+                result = pd.read_sql(query, connection)
+                return result
+            else:
+                result = connection.execute(text(query))
+                return result.rowcount
+    except Exception as err:
+        print(f"Error executing query: {err}")
+        return None
             
             
 def process_data(df, table_name, procedure_name=None):
